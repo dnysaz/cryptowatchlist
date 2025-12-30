@@ -11,6 +11,7 @@ let filteredCoins = [];
 let displayedCount = 25; 
 let tvChart = null;
 let areaSeries = null;
+let currentSocket = null; // Untuk menyimpan koneksi WebSocket
 
 // 1. Inisialisasi Aplikasi
 async function init() {
@@ -38,12 +39,16 @@ async function init() {
             const btc = allCoins.find(c => c.symbol === 'BTCUSDT') || allCoins[0];
             showDetail(btc.symbol, btc.price, btc.change);
         }
+
+        // Jalankan update real-time via WebSocket
+        startLiveUpdates();
+
     } catch (e) {
         console.error("Initialization Error:", e);
     }
 }
 
-// 2. Render Table (Besar & Responsif)
+// 2. Render Table
 function renderTable(reset = false) {
     if (reset) {
         displayedCount = 25;
@@ -54,15 +59,15 @@ function renderTable(reset = false) {
     const nextBatch = filteredCoins.slice(currentLength, currentLength + 25);
     
     const rows = nextBatch.map(c => `
-        <tr onclick="setActiveRow(this); showDetail('${c.symbol}', ${c.price}, ${c.change})" 
+        <tr data-symbol="${c.symbol}" onclick="setActiveRow(this); showDetail('${c.symbol}', ${c.price}, ${c.change})" 
             class="cursor-pointer hover:bg-blue-50 border-b border-gray-100 group transition-all">
             <td class="py-5 px-6">
                 <div class="text-xl font-extrabold text-gray-900 group-hover:text-blue-600">${c.name}</div>
                 <div class="text-xs text-gray-400 font-mono font-bold tracking-widest uppercase">${c.symbol}</div>
             </td>
             <td class="py-5 px-6 text-right">
-                <div class="font-mono text-xl font-bold text-gray-900">$${c.price.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
-                <div class="text-xs ${c.change >= 0 ? 'text-green-600' : 'text-red-600'} font-black">
+                <div class="price-val font-mono text-xl font-bold text-gray-900 transition-colors duration-300">$${c.price.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                <div class="change-val text-xs ${c.change >= 0 ? 'text-green-600' : 'text-red-600'} font-black">
                     ${(c.change >= 0 ? '▲' : '▼')} ${Math.abs(c.change).toFixed(2)}%
                 </div>
             </td>
@@ -79,11 +84,62 @@ function renderTable(reset = false) {
 }
 
 function setActiveRow(row) {
-    document.querySelectorAll('tr').forEach(r => r.classList.remove('selected-row'));
-    row.classList.add('selected-row');
+    document.querySelectorAll('tr').forEach(r => r.classList.remove('selected-row', 'bg-blue-50'));
+    row.classList.add('selected-row', 'bg-blue-50');
 }
 
-// 3. Show Detail & News
+// 3. WebSocket Real-Time Logic
+function startLiveUpdates() {
+    if (currentSocket) currentSocket.close();
+
+    // Pantau 40 koin teratas yang tampil untuk efisiensi
+    const topSymbols = allCoins.slice(0, 40).map(c => `${c.symbol.toLowerCase()}@ticker`);
+    const streamPath = topSymbols.join('/');
+    
+    currentSocket = new WebSocket(`wss://stream.binance.com:9443/ws/${streamPath}`);
+
+    currentSocket.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        const symbol = msg.s;
+        const newPrice = parseFloat(msg.c);
+        const newChange = parseFloat(msg.P);
+
+        // Update di Tabel
+        const row = document.querySelector(`tr[data-symbol="${symbol}"]`);
+        if (row) {
+            const priceEl = row.querySelector('.price-val');
+            const changeEl = row.querySelector('.change-val');
+            const oldPrice = parseFloat(priceEl.innerText.replace('$', '').replace(',', ''));
+
+            if (newPrice > oldPrice) {
+                priceEl.classList.add('text-green-500');
+                setTimeout(() => priceEl.classList.remove('text-green-500'), 400);
+            } else if (newPrice < oldPrice) {
+                priceEl.classList.add('text-red-500');
+                setTimeout(() => priceEl.classList.remove('text-red-500'), 400);
+            }
+
+            priceEl.innerText = `$${newPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+            changeEl.innerHTML = `${(newChange >= 0 ? '▲' : '▼')} ${Math.abs(newChange).toFixed(2)}%`;
+            changeEl.className = `change-val text-xs ${newChange >= 0 ? 'text-green-600' : 'text-red-600'} font-black`;
+        }
+
+        // Update di Detail Panel jika koin yang sama sedang dibuka
+        const activeName = document.getElementById('detail-name').innerText;
+        if (symbol.startsWith(activeName)) {
+            const detailPriceEl = document.getElementById('detail-price');
+            const detailChangeEl = document.getElementById('detail-change');
+            
+            detailPriceEl.innerText = `$${newPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+            detailChangeEl.innerText = (newChange >= 0 ? '+' : '') + `${newChange.toFixed(2)}%`;
+            detailChangeEl.className = `text-lg font-black px-3 py-1 rounded-lg ${newChange >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
+        }
+    };
+
+    currentSocket.onclose = () => setTimeout(startLiveUpdates, 5000);
+}
+
+// 4. Show Detail & News
 async function showDetail(symbol, price, change) {
     emptyState.classList.add('hidden');
     detailPanel.classList.remove('hidden');
@@ -97,26 +153,18 @@ async function showDetail(symbol, price, change) {
     changeEl.innerText = (change >= 0 ? '+' : '') + `${change.toFixed(2)}%`;
     changeEl.className = `text-lg font-black px-3 py-1 rounded-lg ${change >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
 
-    // Jalankan render chart dengan delay agar kontainer siap
     setTimeout(() => renderRealChart(symbol), 200);
     fetchGlobalEnglishNews(symbol.replace('USDT', ''));
     renderTopCards();
 }
 
-// 4. FIX: Fungsi Chart yang Lebih Stabil
+// 5. Chart Function
 async function renderRealChart(symbol) {
     const container = document.getElementById('chart-container');
-    if (!container) return;
-
-    if (typeof LightweightCharts === 'undefined') {
-        console.error("Library LightweightCharts tidak ditemukan.");
-        return;
-    }
+    if (!container || typeof LightweightCharts === 'undefined') return;
 
     container.innerHTML = ''; 
-
     try {
-        // Inisialisasi Chart
         tvChart = LightweightCharts.createChart(container, {
             width: container.clientWidth,
             height: 450,
@@ -126,7 +174,6 @@ async function renderRealChart(symbol) {
             rightPriceScale: { borderColor: '#e5e7eb' },
         });
 
-        // FIX: Menggunakan sintaks addSeries terbaru
         areaSeries = tvChart.addSeries(LightweightCharts.AreaSeries, {
             lineColor: '#2563eb',
             topColor: 'rgba(37, 99, 235, 0.2)',
@@ -136,22 +183,16 @@ async function renderRealChart(symbol) {
 
         const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`);
         const data = await res.json();
-        
-        const formattedData = data.map(d => ({
-            time: d[0] / 1000,
-            value: parseFloat(d[4])
-        }));
+        const formattedData = data.map(d => ({ time: d[0] / 1000, value: parseFloat(d[4]) }));
         
         areaSeries.setData(formattedData);
         tvChart.timeScale().fitContent();
-
     } catch (e) {
-        console.error("Chart Error:", e);
-        container.innerHTML = `<div class="p-10 text-center text-red-500 font-bold">Failed to load chart for ${symbol}</div>`;
+        container.innerHTML = `<div class="p-10 text-center text-red-500 font-bold">Failed to load chart</div>`;
     }
 }
 
-// 5. News Feed (Larger Font)
+// 6. News & Other UI
 async function fetchGlobalEnglishNews(coin) {
     newsContainer.innerHTML = '<div class="text-gray-400 font-bold animate-pulse">Fetching intelligence...</div>';
     try {
@@ -168,17 +209,13 @@ async function fetchGlobalEnglishNews(coin) {
                 </div>
             </a>
         `).join('');
-    } catch (e) {
-        newsContainer.innerHTML = '<p class="text-red-500">News unavailable.</p>';
-    }
+    } catch (e) { newsContainer.innerHTML = '<p>News unavailable.</p>'; }
 }
 
-// Global Ranking Widget
 function renderTopCards() {
     let topWidget = document.getElementById('top-widget');
     if (!topWidget) return;
-    const top4 = allCoins.slice(0, 4);
-    topWidget.innerHTML = top4.map(c => `
+    topWidget.innerHTML = allCoins.slice(0, 4).map(c => `
         <div class="bg-gray-50 p-4 border border-gray-100 rounded-xl">
             <div class="text-[10px] text-gray-400 font-black uppercase tracking-widest">${c.name}</div>
             <div class="text-base font-mono font-bold text-gray-900">$${c.price.toLocaleString()}</div>
@@ -187,7 +224,6 @@ function renderTopCards() {
     `).join('');
 }
 
-// Search Logic
 searchInput.addEventListener('input', (e) => {
     const term = e.target.value.toUpperCase();
     filteredCoins = allCoins.filter(c => c.symbol.includes(term) || c.name.includes(term));
