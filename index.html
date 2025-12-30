@@ -86,9 +86,10 @@
                     CRYPTO<span class="text-blue-600">WATCHLIST</span>
                 </h1>
             </div>
-            <div id="connection-status" class="text-[10px] md:text-xs font-black text-green-600 uppercase flex items-center gap-1.5 bg-green-50 px-2 md:px-3 py-1 rounded-full">
-                <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> LIVE
-            </div>
+            <button id="btn-sound" class="flex items-center gap-2 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full transition-all text-sm font-bold text-gray-600">
+                <span id="sound-icon">🔈</span>
+                <span id="sound-text">Muted</span>
+            </button>
         </div>
     </nav>
 
@@ -142,6 +143,7 @@
                     <h3 class="text-sm md:text-base font-black text-gray-900 uppercase tracking-widest mb-6 border-l-4 border-blue-600 pl-4">Market Insights</h3>
                     <div id="news-container" class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6"></div>
                 </div>
+                
             </div>
 
             <div id="empty-state" class="h-full min-h-[400px] flex flex-col items-center justify-center text-center">

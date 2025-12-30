@@ -89,6 +89,28 @@ function setActiveRow(row) {
 }
 
 // 3. WebSocket Real-Time Logic
+// --- Inisialisasi Audio di Luar Fungsi ---
+const alertSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+alertSound.volume = 0.3; // Volume 30%
+let isMuted = true; // Default mati (aturan browser)
+
+// Logika klik tombol suara
+document.getElementById('btn-sound').addEventListener('click', () => {
+    isMuted = !isMuted;
+    const icon = document.getElementById('sound-icon');
+    const text = document.getElementById('sound-text');
+    
+    if (isMuted) {
+        icon.innerText = '🔈';
+        text.innerText = 'Muted';
+    } else {
+        icon.innerText = '🔊';
+        text.innerText = 'Live Sound';
+        alertSound.play().catch(() => {}); // Test suara saat diaktifkan
+    }
+});
+
+// --- Fungsi startLiveUpdates Baru ---
 function startLiveUpdates() {
     if (currentSocket) currentSocket.close();
 
@@ -104,12 +126,13 @@ function startLiveUpdates() {
         const newPrice = parseFloat(msg.c);
         const newChange = parseFloat(msg.P);
 
-        // Update di Tabel
+        // 1. Update di Tabel (Visual Only)
         const row = document.querySelector(`tr[data-symbol="${symbol}"]`);
         if (row) {
             const priceEl = row.querySelector('.price-val');
             const changeEl = row.querySelector('.change-val');
-            const oldPrice = parseFloat(priceEl.innerText.replace('$', '').replace(',', ''));
+            const oldPriceText = priceEl.innerText.replace('$', '').replace(/,/g, '');
+            const oldPrice = parseFloat(oldPriceText);
 
             if (newPrice > oldPrice) {
                 priceEl.classList.add('text-green-500');
@@ -124,12 +147,21 @@ function startLiveUpdates() {
             changeEl.className = `change-val text-xs ${newChange >= 0 ? 'text-green-600' : 'text-red-600'} font-black`;
         }
 
-        // Update di Detail Panel jika koin yang sama sedang dibuka
+        // 2. Update di Detail Panel & Logika Suara
         const activeName = document.getElementById('detail-name').innerText;
         if (symbol.startsWith(activeName)) {
             const detailPriceEl = document.getElementById('detail-price');
             const detailChangeEl = document.getElementById('detail-change');
             
+            const oldDetailPrice = parseFloat(detailPriceEl.innerText.replace('$', '').replace(/,/g, ''));
+
+            // TRIGGER SUARA: Jika harga berubah (naik atau turun)
+            if (!isMuted && newPrice !== oldDetailPrice) {
+                // Mainkan suara hanya jika pergerakannya nyata
+                alertSound.currentTime = 0; // Reset ke awal agar suara tidak bertumpuk
+                alertSound.play().catch(() => {});
+            }
+
             detailPriceEl.innerText = `$${newPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
             detailChangeEl.innerText = (newChange >= 0 ? '+' : '') + `${newChange.toFixed(2)}%`;
             detailChangeEl.className = `text-lg font-black px-3 py-1 rounded-lg ${newChange >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
